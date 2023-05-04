@@ -1,7 +1,5 @@
 # Seamless Texture GAN
 
-by Nathan Hill & Tim Pietrzyk
-
 ---
 
 ## Requirements
