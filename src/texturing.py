@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from inpainting.util import channelwise_normalize_, tensor01_to_RGB01
+from src.util import channelwise_normalize_, tensor01_to_RGB01
 
 
 class TextureBuilder:

@@ -5,8 +5,8 @@ DTD dataset specifics.
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import DTD
 
-from inpainting.masked_img_dataset import MaskedImageDataset
-from inpainting.params import Params
+from src.masked_img_dataset import MaskedImageDataset
+from src.params import Params
 
 
 # https://pytorch.org/vision/main/generated/torchvision.datasets.DTD.html

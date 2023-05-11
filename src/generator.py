@@ -91,6 +91,6 @@ class Generator(nn.Module):
 
 
 if __name__ == '__main__':
-    from inpainting.util import print_layer_sizes
+    from src.util import print_layer_sizes
 
     print_layer_sizes(Generator().model, (3, 128, 128))

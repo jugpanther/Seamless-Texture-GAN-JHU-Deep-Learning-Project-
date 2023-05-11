@@ -13,17 +13,18 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from tqdm import tqdm
 from skimage.metrics import structural_similarity
 
-from inpainting.discriminator import Discriminator
-from inpainting.generator import Generator
-from inpainting.masked_img_dataset import MaskedImageDataset
-from inpainting.results_grid import ResultsGrid
-from inpainting.texturing import TextureBuilder
-from inpainting.util import model_sanity_check, tensor01_to_RGB01
+from src.discriminator import Discriminator
+from src.generator import Generator
+from src.masked_img_dataset import MaskedImageDataset
+from src.multi_res_generator import MultiResGenerator
+from src.results_grid import ResultsGrid
+from src.texturing import TextureBuilder
+from src.util import model_sanity_check, tensor01_to_RGB01
 
 
 class InPaintingGAN(L.LightningModule):
 
-    def __init__(self, dataset: MaskedImageDataset, img_size, mask_size, adam_b1, adam_b2, lr, lr_sched_step_freq):
+    def __init__(self, dataset: MaskedImageDataset, img_size, mask_size, adam_b1, adam_b2, lr, lr_sched_step_freq, activation_fn):
         """
         Creates a new Lightning model for RGB image inpainting.
 
@@ -43,10 +44,16 @@ class InPaintingGAN(L.LightningModule):
         self.lr = lr
         self.lr_sched_step_freq = lr_sched_step_freq
 
-        self.generator = Generator()
+        # self.generator = Generator(activation_fn=activation_fn)
+        # self.discriminator = Discriminator()
+
+        self.generator = MultiResGenerator()
         self.discriminator = Discriminator()
+
         self.verify_models()
         self.automatic_optimization = False  # because we have multiple optimizers
+
+        self.fraction_complete = 0
 
     def verify_models(self) -> None:
         """
@@ -71,6 +78,7 @@ class InPaintingGAN(L.LightningModule):
                 self.epoch_tqdm.update(1)
 
     def on_train_epoch_start(self) -> None:
+        self.fraction_complete = self.current_epoch / self.trainer.max_epochs
         self.update_epoch_tqdm()
 
     def adversarial_loss(self, y_pred, y_true):
@@ -116,6 +124,12 @@ class InPaintingGAN(L.LightningModule):
         # inspired from from https://lightning.ai/docs/pytorch/stable/notebooks/lightning_examples/basic-gan.html
         imgs_orig, masks, masked_imgs = batch  # type: Tensor, Tensor, Tensor
 
+        # # pre-train generator on pure noise to have a better chance at understanding noise in the masked images
+        # if self.current_epoch < 10:
+        #     mixer = torch.round(torch.rand_like(masked_imgs))
+        #     masked_imgs = imgs_orig * mixer + torch.rand_like(masked_imgs) * (1 - mixer)
+        #     masks = mixer
+
         self.generator.train()  # possibly not needed, but explicit
         self.discriminator.train()
 
@@ -152,7 +166,7 @@ class InPaintingGAN(L.LightningModule):
         optimizer_G.zero_grad()
         self.manual_backward(total_G_loss, retain_graph=True)
         optimizer_G.step()
-        lr_sch_G.step(total_G_loss)
+        # lr_sch_G.step(total_G_loss)
         self.untoggle_optimizer(optimizer_G)
 
         # ===================================================================================================================
@@ -171,7 +185,7 @@ class InPaintingGAN(L.LightningModule):
         optimizer_D.zero_grad()
         self.manual_backward(total_D_loss)
         optimizer_D.step()
-        lr_sch_D.step(total_D_loss)
+        # lr_sch_D.step(total_D_loss)
         self.untoggle_optimizer(optimizer_D)
 
         # ===================================================================================================================
@@ -181,8 +195,8 @@ class InPaintingGAN(L.LightningModule):
         self.log('G_pixel_loss', G_pixel_loss, prog_bar=False, logger=True, on_step=True)
         self.log('D_loss_real', D_loss_real, prog_bar=False, logger=True, on_step=True)
         self.log('D_loss_fake', D_loss_fake, prog_bar=False, logger=True, on_step=True)
-        self.log('g_lr', lr_sch_G._last_lr[0], prog_bar=False, logger=True, on_step=True)
-        self.log('d_lr', lr_sch_D._last_lr[0], prog_bar=False, logger=True, on_step=True)
+        # self.log('g_lr', lr_sch_G._last_lr[0], prog_bar=False, logger=True, on_step=True)
+        # self.log('d_lr', lr_sch_D._last_lr[0], prog_bar=False, logger=True, on_step=True)
 
         # log extra data a few times per epoch
         if batch_idx % (self.trainer.num_training_batches // 5) == 0:

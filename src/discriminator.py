@@ -51,6 +51,6 @@ class Discriminator(nn.Module):
 
 
 if __name__ == '__main__':
-    from inpainting.util import print_layer_sizes
+    from src.util import print_layer_sizes
 
     print_layer_sizes(Discriminator().model, (3, 128, 128))
