@@ -1,6 +1,7 @@
 """
 Seamless texture visualization.
 """
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -42,7 +43,35 @@ class TextureBuilder:
         self.border_size = border_size
         self.true_tile_size = self.generator_input_size - 2 * self.border_size
         self.img = np.random.random((self.true_tile_size * tile_rows, self.true_tile_size * tile_cols, 3))  # populate initial noise
-        self.img[:seed_img.shape[0], :seed_img.shape[1]] = seed_img
+        self.tile_order = self._randomize_tile_order()
+        self._insert_seed_img(seed_img)
+
+    def _randomize_tile_order(self) -> List[Tuple[int, int]]:
+        """
+        Gets a random ordering of each tile in the texture as a list of (row,col) indexes.
+
+        :return: list of tuples in format (row,col)
+        """
+        tile_positions = [(row, col) for row in range(self.tile_rows) for col in range(self.tile_cols)]
+        np.random.shuffle(tile_positions)
+        return tile_positions
+
+    def _insert_seed_img(self, seed_img: np.ndarray) -> None:
+        """
+        Inserts the seed image in a random location.
+
+        :return: None
+        """
+        if seed_img.shape[0] != self.true_tile_size or seed_img.shape[1] != self.true_tile_size:
+            raise ValueError(f'Seed image has shape {seed_img.shape} but expected a side length of {self.true_tile_size}')
+
+        tile_row, tile_col = self.tile_order.pop()
+        start_row = tile_row * self.true_tile_size
+        end_row = start_row + self.true_tile_size
+        start_col = tile_col * self.true_tile_size
+        end_col = tile_col + self.true_tile_size
+
+        self.img[start_row:end_row, start_col:end_col] = seed_img
 
     def get_img(self) -> np.ndarray:
         """
@@ -60,14 +89,8 @@ class TextureBuilder:
         :return: None
         """
         self.generator.eval()
-        tile_positions = [(row, col) for row in range(self.tile_rows) for col in range(self.tile_cols)]
-        np.random.shuffle(tile_positions)
 
-        for tile_row, tile_col in tile_positions:
-            if tile_row == 0 and tile_col == 0:
-                # skip seed image tile
-                continue
-
+        for tile_row, tile_col in self.tile_order:
             # pixels are COPIED from the large texture and PASTED into a single tile for input to the generator
             # "copy" coordinates are respective to the large texture image
             start_row_copy = max(0, tile_row * self.true_tile_size - self.border_size)
