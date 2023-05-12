@@ -247,7 +247,7 @@ class InPaintingGAN(L.LightningModule):
             dataset = self.dataset
 
             # columns are original image, masked image, generator output, discriminator output
-            grid = ResultsGrid(rows=sample_count, cols=4, tile_size=128)
+            grid = ResultsGrid(tile_rows=sample_count, tile_cols=4, tile_size=128)
 
             for i in range(sample_count):
                 i = len(dataset) // sample_count * i
@@ -278,7 +278,7 @@ class InPaintingGAN(L.LightningModule):
                 mean_ssim, full_ssim = structural_similarity(metric_img_real, metric_img_fake, channel_axis=2, gaussian_weights=True, use_sample_covariance=False, full=True)
                 ssim_sum += mean_ssim
 
-            grid_img = grid.get().copy()
+            grid_img = grid.get_img().copy()
             del grid, G_output, D_output
 
             self.log('PNSR', pnsr_sum / sample_count, prog_bar=False, logger=True, on_step=True)
