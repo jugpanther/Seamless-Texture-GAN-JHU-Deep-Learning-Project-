@@ -298,14 +298,14 @@ class InPaintingGAN(L.LightningModule):
         seed_img = tensor01_to_RGB01(self.dataset[0][0])
         builder = TextureBuilder(self.img_size, rows, cols, self.generator, self.mask_size, self.device, seed_img)
         builder.build()
-        texture_img = builder.get()
+        texture_img = builder.get_img()
         elapsed_steps = self.current_epoch * len(self.dataset) + batch_idx
         logger = self.logger  # type: TensorBoardLogger
         logger.experiment.add_image("textures", texture_img, elapsed_steps, dataformats='HWC')
 
         builder = TextureBuilder(self.img_size, rows, cols, self.generator, self.mask_size * 2, self.device, seed_img)
         builder.build()
-        texture_img = builder.get()
+        texture_img = builder.get_img()
         elapsed_steps = self.current_epoch * len(self.dataset) + batch_idx
         logger = self.logger  # type: TensorBoardLogger
         logger.experiment.add_image("textures*2", texture_img, elapsed_steps, dataformats='HWC')
