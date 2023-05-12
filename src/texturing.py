@@ -14,30 +14,37 @@ class TextureBuilder:
     Image builder class: creates an image composed of many texture tiles.
     """
 
-    def __init__(self, generator_size: int, tile_rows: int, tile_cols: int, generator: nn.Module, border_size: int, device: any, seed_img: np.ndarray):
+    def __init__(self,
+                 generator_input_size: int,
+                 tile_rows: int,
+                 tile_cols: int,
+                 generator: nn.Module,
+                 border_size: int,
+                 device: any,
+                 seed_img: np.ndarray):
         """
-        :param generator_size: generator input image size
-        :param tile_rows: number of rows in final image
-        :param tile_cols: number of columns in final image
+        :param generator_input_size: generator input image size
+        :param tile_rows: number of rows of tiles in final image
+        :param tile_cols: number of columns of tiles in final image
         :param generator: trained generator
-        :param border_size: size (in pixels) of boarder taken from neighboring tiles
+        :param border_size: size (in pixels) of border taken from neighboring tiles
         :param device: CUDA device of generator (can be any valid device)
-        :param seed_img: initial real image used to "seed" all remaining images produced by generator
+        :param seed_img: initial real image used to "seed" all remaining images produced by generator; must be tile-sized
         """
         if tile_rows < 2 or tile_cols < 2:
             raise ValueError('Expected the number of tile rows and cols to each be 2 or more.')
 
-        self.generator_size = generator_size
+        self.generator_input_size = generator_input_size
         self.tile_rows = tile_rows
         self.tile_cols = tile_cols
         self.generator = generator
         self.device = device
         self.border_size = border_size
-        self.output_crop_size = self.generator_size - 2 * self.border_size
-        self.img = np.random.random((self.output_crop_size * tile_rows, self.output_crop_size * tile_cols, 3))
+        self.true_tile_size = self.generator_input_size - 2 * self.border_size
+        self.img = np.random.random((self.true_tile_size * tile_rows, self.true_tile_size * tile_cols, 3))  # populate initial noise
         self.img[:seed_img.shape[0], :seed_img.shape[1]] = seed_img
 
-    def get(self) -> np.ndarray:
+    def get_img(self) -> np.ndarray:
         """
         Gets the created image.
 
@@ -45,36 +52,44 @@ class TextureBuilder:
         """
         return self.img
 
+    @torch.no_grad()
     def build(self) -> None:
         """
         Constructs the large texture image.
 
         :return: None
         """
-        with torch.no_grad():
-            self.generator.eval()
+        self.generator.eval()
+        tile_positions = [(row, col) for row in range(self.tile_rows) for col in range(self.tile_cols)]
+        np.random.shuffle(tile_positions)
 
-            for tile_row in range(self.tile_rows):
-                for tile_col in range(1 if tile_row == 0 else 0, self.tile_cols):
-                    # "copy" coordinates are respective to the large grid image
-                    start_row_copy = max(0, tile_row * self.output_crop_size - self.border_size)
-                    end_row_copy = min(self.img.shape[0], (tile_row + 1) * self.output_crop_size + self.border_size)
-                    start_col_copy = max(0, tile_col * self.output_crop_size - self.border_size)
-                    end_col_copy = min(self.img.shape[1], (tile_col + 1) * self.output_crop_size + self.border_size)
+        for tile_row, tile_col in tile_positions:
+            if tile_row == 0 and tile_col == 0:
+                # skip seed image tile
+                continue
 
-                    # "paste" coordinates are respective to a single (generator-input-shaped) tile
-                    start_row_paste = 0 if tile_row > 0 else self.border_size
-                    end_row_paste = self.generator_size if tile_row < self.tile_rows - 1 else self.generator_size - self.border_size
-                    start_col_paste = 0 if tile_col > 0 else self.border_size
-                    end_col_paste = self.generator_size if tile_col < self.tile_cols - 1 else self.generator_size - self.border_size
+            # pixels are COPIED from the large texture and PASTED into a single tile for input to the generator
+            # "copy" coordinates are respective to the large texture image
+            start_row_copy = max(0, tile_row * self.true_tile_size - self.border_size)
+            end_row_copy = min(self.img.shape[0], (tile_row + 1) * self.true_tile_size + self.border_size)
+            start_col_copy = max(0, tile_col * self.true_tile_size - self.border_size)
+            end_col_copy = min(self.img.shape[1], (tile_col + 1) * self.true_tile_size + self.border_size)
 
-                    masked_img = np.random.random((self.generator_size, self.generator_size, 3))  # because we can't copy all img pixels around edge of large image
-                    masked_img[start_row_paste:end_row_paste, start_col_paste:end_col_paste] = self.img[start_row_copy:end_row_copy, start_col_copy:end_col_copy]
+            # "paste" coordinates are respective to a single (generator-input-shaped) tile
+            start_row_paste = 0 if tile_row > 0 else self.border_size
+            end_row_paste = self.generator_input_size if tile_row < self.tile_rows - 1 else self.generator_input_size - self.border_size
+            start_col_paste = 0 if tile_col > 0 else self.border_size
+            end_col_paste = self.generator_input_size if tile_col < self.tile_cols - 1 else self.generator_input_size - self.border_size
 
-                    masked_img = np.transpose(masked_img, (2, 0, 1))
-                    channelwise_normalize_(masked_img, 0, 0.5)
-                    masked_img = torch.tensor(masked_img, dtype=torch.float32).unsqueeze(0).to(self.device)
-                    G_output = self.generator(masked_img)
-                    G_output = tensor01_to_RGB01(G_output).squeeze(0)
+            # big texture already has default noise, but tiles around border of texture don't get all pixels copied,
+            # so need to populate tile with noise first
+            masked_img = np.random.random((self.generator_input_size, self.generator_input_size, 3))
+            masked_img[start_row_paste:end_row_paste, start_col_paste:end_col_paste] = self.img[start_row_copy:end_row_copy, start_col_copy:end_col_copy]
 
-                    self.img[start_row_copy:end_row_copy, start_col_copy:end_col_copy] = G_output[start_row_paste:end_row_paste, start_col_paste:end_col_paste]
+            masked_img = np.transpose(masked_img, (2, 0, 1))
+            channelwise_normalize_(masked_img, 0, 0.5)
+            masked_img = torch.tensor(masked_img, dtype=torch.float32).unsqueeze(0).to(self.device)
+            G_output = self.generator(masked_img)
+            G_output = tensor01_to_RGB01(G_output).squeeze(0)
+
+            self.img[start_row_copy:end_row_copy, start_col_copy:end_col_copy] = G_output[start_row_paste:end_row_paste, start_col_paste:end_col_paste]
