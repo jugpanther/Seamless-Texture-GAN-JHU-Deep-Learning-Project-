@@ -55,6 +55,10 @@ arg_parser.add_argument('--samples_per_img',
                         type=int,
                         help='Number of samples taken per image')
 
+arg_parser.add_argument('--test_texture_size',
+                        type=int,
+                        help='Side length, in tiles, of test texture, e.g. \'4\' for 4x4')
+
 arg_parser.add_argument('--augs_per_sample',
                         type=int,
                         help='Number of augmentations taken per sample')
@@ -101,6 +105,7 @@ params.wandering_mask_prob = args.wandering_mask_prob
 params.experiment_name = args.exp_name
 params.run_profile = args.profile
 params.samples_per_img = args.samples_per_img
+params.test_texture_size = args.test_texture_size
 params.augs_per_sample = args.augs_per_sample
 
 if args.full_aug:
