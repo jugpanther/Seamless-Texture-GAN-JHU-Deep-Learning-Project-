@@ -1,6 +1,8 @@
 """
 Generator model definition.
 """
+from typing import List
+
 import torch
 import torchvision.transforms
 from torch import nn
@@ -8,8 +10,15 @@ from torchvision.transforms import Resize
 
 
 class MultiResGenerator(nn.Module):
+    """
+    A three-stage multi-resolution generator that progressively refines a low-resolution prediction.
+    """
 
     def __init__(self, in_channels: int = 3, out_channels: int = 3):
+        """
+        :param in_channels: number of input channels; default is 3
+        :param out_channels: number of output channels; default is 3
+        """
         super().__init__()
 
         self.in_channels = in_channels
@@ -26,7 +35,16 @@ class MultiResGenerator(nn.Module):
         self.resize64 = Resize(size=64, interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True)
         self.resize128 = Resize(size=128, interpolation=torchvision.transforms.InterpolationMode.BILINEAR, antialias=True)
 
-    def _encoder_block(self, in_channels, out_channels, constant_size=False):
+    @staticmethod
+    def _encoder_block(in_channels, out_channels, constant_size=False) -> List[nn.Module]:
+        """
+        Builds a convolutional encoder block with the specified traits.
+
+        :param in_channels: number of input channels
+        :param out_channels: number of output channels
+        :param constant_size: if True, convolution is constant in spatial dimensions
+        :return: list of layers making up this block
+        """
         if constant_size:
             conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
         else:
@@ -38,7 +56,16 @@ class MultiResGenerator(nn.Module):
             nn.LeakyReLU(0.2)
         ]
 
-    def _decoder_block(self, in_channels, out_channels, constant_size=False):
+    @staticmethod
+    def _decoder_block(in_channels, out_channels, constant_size=False) -> List[nn.Module]:
+        """
+        Builds a convolutional decoder block with the specified traits.
+
+        :param in_channels: number of input channels
+        :param out_channels: number of output channels
+        :param constant_size: if True, convolution is constant in spatial dimensions
+        :return: list of layers making up this block
+        """
         if constant_size:
             conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
         else:
@@ -56,9 +83,9 @@ class MultiResGenerator(nn.Module):
         out_channels = 32
         layers = []
 
-        # first block is different
+        # first block does not get a batchnorm
         block = self._encoder_block(in_channels, out_channels, constant_size=True)
-        block.pop(1)  # first convolution does not get a batchnorm
+        block.pop(1)
         layers.extend(block)
 
         # encoder channel doubling
@@ -85,14 +112,12 @@ class MultiResGenerator(nn.Module):
             block = self._decoder_block(in_channels, out_channels)
             layers.extend(block)
 
-        # final layers
+        # final block
         in_channels = out_channels
         layers.extend([
             self._encoder_block(in_channels, out_channels=self.out_channels, constant_size=True)[0],  # conv layer only
             nn.Sigmoid()
         ])
-
-        # ===========================================================================
 
         model = nn.Sequential(*layers)
 
@@ -140,8 +165,6 @@ class MultiResGenerator(nn.Module):
             self._encoder_block(in_channels, out_channels=self.out_channels, constant_size=True)[0],  # conv layer only
             nn.Sigmoid()
         ])
-
-        # ===========================================================================
 
         model = nn.Sequential(*layers)
 
@@ -191,8 +214,6 @@ class MultiResGenerator(nn.Module):
             nn.Sigmoid()
         ])
 
-        # ===========================================================================
-
         model = nn.Sequential(*layers)
 
         for m in model.modules():
@@ -201,35 +222,40 @@ class MultiResGenerator(nn.Module):
 
         return model
 
-    def forward(self, x):
-        x16_in = self.resize16(x)
-        x16_out = self.model16(x16_in)
-        x16_out = self.upsample16(x16_out)  # upscale
+    def forward(self, x128):
+        """
+        Forward network evaluation.
 
-        x64_in = self.resize64(x)
-        x64_in = torch.cat((x64_in, x16_out), dim=1)
-        x64_out = self.model64(x64_in)
-        x64_out = self.upsample64(x64_out)  # upscale
+        :param x128: input tensor; assumes H=W=128; must include batch dimension like (B, C, H, W)
+        :return: output tensor
+        """
+        x16 = self.resize16(x128)
+        x16 = self.model16(x16)
+        x64up = self.upsample16(x16)
 
-        x128_in = x
-        x128_in = torch.cat((x128_in, x64_out), dim=1)
-        x128_out = self.model128(x128_in)
+        x64 = self.resize64(x128)
+        x64 = torch.cat((x64, x64up), dim=1)
+        x64 = self.model64(x64)
+        x128up = self.upsample64(x64)
 
-        return x128_out
+        x128 = torch.cat((x128, x128up), dim=1)
+        x128 = self.model128(x128)
+
+        return x128
 
 
 if __name__ == '__main__':
     from src.util import model_sanity_check, print_layer_sizes
 
     gen = MultiResGenerator()
-    model = gen.models[0]
-    print_layer_sizes(model, (3, 16, 16))
+    m = gen.models[0]
+    print_layer_sizes(m, (3, 16, 16))
     print()
-    model = gen.models[2]
-    print_layer_sizes(model, (6, 64, 64))
+    m = gen.models[2]
+    print_layer_sizes(m, (6, 64, 64))
     print()
-    model = gen.models[4]
-    print_layer_sizes(model, (6, 128, 128))
+    m = gen.models[4]
+    print_layer_sizes(m, (6, 128, 128))
     print('=' * 100)
     # gen.forward(torch.rand(1, 3, 128, 128))
     model_sanity_check(gen, (3, 128, 128), (3, 128, 128))

@@ -23,6 +23,7 @@ class Params:
     mask_size = -1
     samples_per_img = -1
     wandering_mask_prob: float = 0
+    test_texture_size: int = -1
 
     epoch_count = -1
     batch_size = -1
@@ -37,13 +38,23 @@ class Params:
     aug_transform: T.Compose = None
     base_transform: T.Compose = None
 
+    @property
+    def true_tile_size(self) -> int:
+        """
+        Calculates the "true" tile size from the input image size and mask border size.
+
+        :return: true tile size
+        """
+        return self.img_size - 2 * self.mask_size
+
     def __str__(self):
         return f'Dataset location:   "{self.data_dir_path}"\n' \
                f'Save data location: "{self.save_dir_path}"\n' \
                f'Run profile is "{self.run_profile}"' \
-               f'Image size is {self.img_size}x{self.img_size} with a mask size of {self.mask_size}\n' \
+               f'Generator input size is {self.img_size}² with a mask size of {self.mask_size}\n; true tile size is {self.true_tile_size}' \
                f'Taking {self.samples_per_img} samples per image with {self.augs_per_sample} augmentations per sample\n' \
                f'Wandering mask patch probability is {self.wandering_mask_prob}\n' \
+               f'Test texture size is {self.test_texture_size}² (tiles), or {self.test_texture_size * self.true_tile_size}² (pixels)' \
                f'Training will run for {self.epoch_count} epochs with a batch size of {self.batch_size} and learning rate of {self.lr:.2e}\n' \
                f'Augmentation type is {AugTypes.as_str(self.aug_type)}\n' \
                f'Running with {self.train_worker_count} workers'
