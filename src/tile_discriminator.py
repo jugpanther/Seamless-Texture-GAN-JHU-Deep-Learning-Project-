@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 
-class Discriminator(nn.Module):
+class TileDiscriminator(nn.Module):
 
     def __init__(self, channels=3):
         super().__init__()
@@ -53,4 +53,4 @@ class Discriminator(nn.Module):
 if __name__ == '__main__':
     from src.util import print_layer_sizes
 
-    print_layer_sizes(Discriminator().model, (3, 128, 128))
+    print_layer_sizes(TileDiscriminator().model, (3, 128, 128))

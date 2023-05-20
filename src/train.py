@@ -13,7 +13,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from tqdm import tqdm
 from skimage.metrics import structural_similarity
 
-from src.tile_discriminator import Discriminator
+from src.tile_discriminator import TileDiscriminator
 from src.generator import Generator
 from src.masked_img_dataset import MaskedImageDataset
 from src.multi_res_generator import MultiResGenerator
@@ -47,7 +47,7 @@ class InPaintingGAN(L.LightningModule):
         self.lr_sched_step_freq = lr_sched_step_freq
 
         self.generator = MultiResGenerator()
-        self.discriminator = Discriminator()
+        self.tile_discriminator = TileDiscriminator()
         self.texture_discriminator = TextureDiscriminator()
 
         self.verify_models()
@@ -60,7 +60,7 @@ class InPaintingGAN(L.LightningModule):
         :return: None
         """
         model_sanity_check(self.generator, (3, self.img_size, self.img_size), (3, self.img_size, self.img_size), 'Generator')
-        model_sanity_check(self.discriminator, (3, self.img_size, self.img_size), (1, self.img_size, self.img_size), 'Discriminator')
+        model_sanity_check(self.tile_discriminator, (3, self.img_size, self.img_size), (1, self.img_size, self.img_size), 'Tile Discriminator')
         model_sanity_check(self.texture_discriminator, (3, self.texture_builder.texture_size, self.texture_builder.texture_size), (1,), 'Texture Discriminator')
         print('Models passed data size checks')
 
@@ -129,7 +129,7 @@ class InPaintingGAN(L.LightningModule):
         #     masks = mixer
 
         self.generator.train()  # possibly not needed, but explicit
-        self.discriminator.train()
+        self.tile_discriminator.train()
 
         optimizer_G, optimizer_D = self.optimizers()  # type: torch.optim.Optimizer
         lr_sch_G, lr_sch_D = self.lr_schedulers()  # type: torch.optim.lr_scheduler.ReduceLROnPlateau
@@ -147,7 +147,7 @@ class InPaintingGAN(L.LightningModule):
         G_output_for_D.copy_(G_output)
         G_output_for_D.requires_grad_(True)
 
-        D_output = self.discriminator(G_output)  # see what D thinks of G's attempt
+        D_output = self.tile_discriminator(G_output)  # see what D thinks of G's attempt
         G_adv_loss = self.adversarial_loss(D_output, ideal_D_output_real.detach().requires_grad_(True))  # ideally zero; trying to make D guess all images are real
         G_pixel_loss = self.pixelwise_loss(G_output, imgs_orig.detach().requires_grad_(True))  # ideally zero; trying to make G produce exact, real patches
 
@@ -172,11 +172,11 @@ class InPaintingGAN(L.LightningModule):
         self.toggle_optimizer(optimizer_D)
 
         # assess ability to correctly identify real images
-        D_output_real = self.discriminator(imgs_orig.requires_grad_(True))
+        D_output_real = self.tile_discriminator(imgs_orig.requires_grad_(True))
         D_loss_real = self.adversarial_loss(D_output_real, ideal_D_output_real.requires_grad_(True))
 
         # assess ability to correctly identify fake images
-        D_output_fake = self.discriminator(G_output_for_D)  # modified masked images from generator
+        D_output_fake = self.tile_discriminator(G_output_for_D)  # modified masked images from generator
         D_loss_fake = self.adversarial_loss(D_output_fake, ideal_D_output_fake.requires_grad_(True))
         total_D_loss = (D_loss_real + D_loss_fake) / 2.0  # average loss
 
@@ -203,7 +203,7 @@ class InPaintingGAN(L.LightningModule):
 
     def configure_optimizers(self):
         opt_G = torch.optim.Adam(self.generator.parameters(), lr=self.lr, betas=(self.adam_b1, self.adam_b2))
-        opt_D = torch.optim.Adam(self.discriminator.parameters(), lr=self.lr, betas=(self.adam_b1, self.adam_b2))
+        opt_D = torch.optim.Adam(self.tile_discriminator.parameters(), lr=self.lr, betas=(self.adam_b1, self.adam_b2))
         lr_sch_config_G = {
             "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(opt_G, factor=0.25, patience=1000, min_lr=1e-6, cooldown=1000),
             "interval": "step",
@@ -240,7 +240,7 @@ class InPaintingGAN(L.LightningModule):
         ssim_sum = 0
 
         with torch.no_grad():
-            self.discriminator.eval()
+            self.tile_discriminator.eval()
             sample_count = 6
             dataset = self.dataset
 
@@ -268,7 +268,7 @@ class InPaintingGAN(L.LightningModule):
                 metric_img_fake = G_output[0].detach().cpu().permute(1, 2, 0).numpy()
 
                 # col 3: discriminator output
-                D_output = self.discriminator(G_output)
+                D_output = self.tile_discriminator(G_output)
                 grid.add_tile(D_output, normalize=False)
 
                 # metrics
