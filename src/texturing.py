@@ -20,7 +20,7 @@ class TextureBuilder:
                  tile_rows: int,
                  tile_cols: int,
                  generator: nn.Module,
-                 border_size: int,
+                 true_tile_size: int,
                  device: any,
                  seed_img: np.ndarray):
         """
@@ -28,23 +28,34 @@ class TextureBuilder:
         :param tile_rows: number of rows of tiles in final image
         :param tile_cols: number of columns of tiles in final image
         :param generator: trained generator
-        :param border_size: size (in pixels) of border taken from neighboring tiles
         :param device: CUDA device of generator (can be any valid device)
         :param seed_img: initial real image used to "seed" all remaining images produced by generator; must be tile-sized
         """
         if tile_rows < 2 or tile_cols < 2:
             raise ValueError('Expected the number of tile rows and cols to each be 2 or more.')
 
+        if tile_rows != tile_cols:
+            raise ValueError(f'Textures are assumed to be square. Found {tile_rows} tile rows and {tile_cols} tile cols.')
+
         self.generator_input_size = generator_input_size
         self.tile_rows = tile_rows
         self.tile_cols = tile_cols
         self.generator = generator
         self.device = device
-        self.border_size = border_size
-        self.true_tile_size = self.generator_input_size - 2 * self.border_size
+        self.true_tile_size = true_tile_size
         self.img = np.random.random((self.true_tile_size * tile_rows, self.true_tile_size * tile_cols, 3))  # populate initial noise
         self.tile_order = self._randomize_tile_order()
         self._insert_seed_img(seed_img)
+
+    @property
+    def texture_size(self) -> int:
+        """
+        The side length of the overall generated texture (in pixels).
+        Assumes the texture is square.
+
+        :return: side length of the overall generated texture (in pixels)
+        """
+        return (self.tile_rows * self.true_tile_size) ** 2
 
     def _randomize_tile_order(self) -> List[Tuple[int, int]]:
         """
