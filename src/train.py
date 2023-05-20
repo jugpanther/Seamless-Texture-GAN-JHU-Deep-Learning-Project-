@@ -13,18 +13,19 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from tqdm import tqdm
 from skimage.metrics import structural_similarity
 
-from src.discriminator import Discriminator
+from src.tile_discriminator import Discriminator
 from src.generator import Generator
 from src.masked_img_dataset import MaskedImageDataset
 from src.multi_res_generator import MultiResGenerator
 from src.results_grid import ResultsGrid
+from src.texture_discriminator import TextureDiscriminator
 from src.texturing import TextureBuilder
 from src.util import model_sanity_check, tensor01_to_RGB01
 
 
 class InPaintingGAN(L.LightningModule):
 
-    def __init__(self, dataset: MaskedImageDataset, img_size, mask_size, adam_b1, adam_b2, lr, lr_sched_step_freq, activation_fn):
+    def __init__(self, dataset: MaskedImageDataset, img_size, mask_size, texture_builder: TextureBuilder, adam_b1, adam_b2, lr, lr_sched_step_freq):
         """
         Creates a new Lightning model for RGB image inpainting.
 
@@ -39,31 +40,29 @@ class InPaintingGAN(L.LightningModule):
         self.dataset = dataset
         self.img_size = img_size
         self.mask_size = mask_size
+        self.texture_builder = texture_builder
         self.adam_b1 = adam_b1
         self.adam_b2 = adam_b2
         self.lr = lr
         self.lr_sched_step_freq = lr_sched_step_freq
 
-        # self.generator = Generator(activation_fn=activation_fn)
-        # self.discriminator = Discriminator()
-
         self.generator = MultiResGenerator()
         self.discriminator = Discriminator()
+        self.texture_discriminator = TextureDiscriminator()
 
         self.verify_models()
         self.automatic_optimization = False  # because we have multiple optimizers
 
-        self.fraction_complete = 0
-
     def verify_models(self) -> None:
         """
-        Validates the generator and discriminator models. Raises an exception if either fails.
+        Validates the output sizes of each model. Raises an exception upon failure.
 
         :return: None
         """
         model_sanity_check(self.generator, (3, self.img_size, self.img_size), (3, self.img_size, self.img_size), 'Generator')
         model_sanity_check(self.discriminator, (3, self.img_size, self.img_size), (1, self.img_size, self.img_size), 'Discriminator')
-        print('Model passed data size checks')
+        model_sanity_check(self.texture_discriminator, (3, self.texture_builder.texture_size, self.texture_builder.texture_size), (1,), 'Texture Discriminator')
+        print('Models passed data size checks')
 
     def forward(self, x):
         return self.generator(x)
@@ -78,7 +77,6 @@ class InPaintingGAN(L.LightningModule):
                 self.epoch_tqdm.update(1)
 
     def on_train_epoch_start(self) -> None:
-        self.fraction_complete = self.current_epoch / self.trainer.max_epochs
         self.update_epoch_tqdm()
 
     def adversarial_loss(self, y_pred, y_true):
@@ -101,8 +99,8 @@ class InPaintingGAN(L.LightningModule):
         batch_size = original_imgs.shape[0]
 
         # value of 1 represents real, value of 0 represents fake
-        # a "real" image will be fully real (value of 1 everywhere)
-        # a "fake" image will have a variety of 0s and 1s depending on each mask in the batch
+        # --> a "real" image will be fully real (value of 1 everywhere)
+        # --> a "fake" image will have a variety of 0s and 1s depending on each mask in the batch
 
         ideal_d_output_real = torch.ones(batch_size, 1, self.img_size, self.img_size).requires_grad_(False)
         ideal_d_output_fake = masks[:, :1].clone().detach().requires_grad_(False)  # take first channel of mask only because this tensor needs to be 1D
