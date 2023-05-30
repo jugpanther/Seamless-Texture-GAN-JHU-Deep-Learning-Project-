@@ -182,6 +182,16 @@ class MaskedImageDataset(Dataset):
 
         return sample, logical_mask, masked_img
 
+    def generate_texture_sample(self) -> Tensor:
+        """
+        Builds a large texture sample from a ground truth source image.
+
+        :return: image tensor with batch dimension
+        """
+        source_img = np.random.choice(self.imgs, 1)
+        texture = self.texture_transform(source_img)
+        return texture
+
 # def test_mask_generation():
 #     img_size = 64
 #
