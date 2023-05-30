@@ -154,12 +154,119 @@ class InPaintingGAN(L.LightningModule):
         ideal_d_output_fake = masks[:, :1].clone().detach().requires_grad_(False)  # take first channel of mask only because this tensor needs to be 1D
 
         # move tensors to same devices as other batch data
-        ideal_d_output_real = ideal_d_output_real.type_as(original_imgs)
-        ideal_d_output_fake = ideal_d_output_fake.type_as(original_imgs)
+        ideal_discr_output_real = ideal_discr_output_real.type_as(original_imgs)
+        ideal_discr_output_fake = ideal_discr_output_fake.type_as(original_imgs)
 
-        return ideal_d_output_real, ideal_d_output_fake
+        return ideal_discr_output_real, ideal_discr_output_fake
 
-    def training_step(self, batch, batch_idx):
+    def train_generator(self, imgs_orig: Tensor, masked_imgs: Tensor, ideal_discr_output_real: Tensor, generated_texture: Tensor) -> Tensor:
+        """
+        Performs a training iteration on the generator.
+
+        :param imgs_orig: batch data; original images
+        :param masked_imgs: batch data; masked images
+        :param ideal_discr_output_real: constructed ideal tile discriminator output
+        :param generated_texture: assembled (fake) texture using generated tiles
+        :return: raw generator output
+        """
+        optimizer_gen = self.optimizers()[0]
+        self.toggle_optimizer(optimizer_gen)
+
+        gen_output = self.generator(masked_imgs)
+        tile_discr_output = self.tile_discriminator(gen_output)
+        texture_discr_output = self.texture_discriminator(generated_texture)
+        gen_adv_loss = self.adversarial_loss(tile_discr_output, ideal_discr_output_real)  # ideally zero; trying to make tile discriminator guess all images are real
+        gen_pixel_loss = self.pixelwise_loss(gen_output, imgs_orig)  # ideally zero; trying to make generator produce exact, real tiles
+        gen_texture_loss = 1 - texture_discr_output  # ideally zero; trying to make texture discriminator guess texture is real
+
+        adv_loss_weight = 0.1
+        pixel_loss_weight = 0.7
+        texture_loss_weight = 0.2
+        total_gen_loss = (adv_loss_weight * gen_adv_loss) + (pixel_loss_weight * gen_pixel_loss) + (texture_loss_weight * gen_texture_loss)  # ideally zero
+
+        optimizer_gen.zero_grad()
+        self.manual_backward(total_gen_loss, retain_graph=False)
+        optimizer_gen.step()
+        # lr_sch_gen = self.lr_schedulers()[0]
+        # lr_sch_gen.step(total_gen_loss)
+        self.untoggle_optimizer(optimizer_gen)
+
+        self.log('g_loss', total_gen_loss, prog_bar=True, logger=True, on_step=True)
+        self.log('g_adv_loss', gen_adv_loss, prog_bar=False, logger=True, on_step=True)
+        self.log('g_pixel_loss', gen_pixel_loss, prog_bar=False, logger=True, on_step=True)
+        # self.log('g_lr', lr_sch_gen._last_lr[0], prog_bar=False, logger=True, on_step=True)
+
+        return gen_output
+
+    def train_tile_discriminator(self, imgs_orig: Tensor, ideal_tile_discr_output_real: Tensor, ideal_tile_discr_output_fake: Tensor, gen_output: Tensor) -> None:
+        """
+        Performs a training iteration on the tile discriminator.
+
+        :param imgs_orig: batch data; original images
+        :param ideal_tile_discr_output_real: constructed ideal tile discriminator output for real examples
+        :param ideal_tile_discr_output_fake: constructed ideal tile discriminator output for fake examples
+        :param gen_output: example generator output to use for training on fake imagery
+        :return: None
+        """
+        optimizer_tile_discr = self.optimizers()[1]
+        self.toggle_optimizer(optimizer_tile_discr)
+
+        # assess ability to correctly identify real images
+        discr_output_real = self.tile_discriminator(imgs_orig)
+        discr_loss_real = self.adversarial_loss(discr_output_real, ideal_tile_discr_output_real)
+
+        # assess ability to correctly identify fake images
+        discr_output_fake = self.tile_discriminator(gen_output)
+        discr_loss_fake = self.adversarial_loss(discr_output_fake, ideal_tile_discr_output_fake)
+
+        total_discr_loss = (discr_loss_real + discr_loss_fake) / 2.0  # average loss
+
+        optimizer_tile_discr.zero_grad()
+        self.manual_backward(total_discr_loss)
+        optimizer_tile_discr.step()
+        # lr_sch_tile_discr = self.lr_schedulers()[1]
+        # lr_sch_tile_discr.step(total_discr_loss)
+        self.untoggle_optimizer(optimizer_tile_discr)
+
+        self.log('tile_d_loss', total_discr_loss, prog_bar=True, logger=True, on_step=True)
+        self.log('tile_d_loss_real', discr_loss_real, prog_bar=False, logger=True, on_step=True)
+        self.log('tile_d_loss_fake', discr_loss_fake, prog_bar=False, logger=True, on_step=True)
+        # self.log('tile_d_lr', lr_sch_tile_discr._last_lr[0], prog_bar=False, logger=True, on_step=True)
+
+    def train_texture_discriminator(self, generated_texture: Tensor, real_texture: Tensor) -> None:
+        """
+        Performs a training iteration on the texture discriminator.
+
+        :param generated_texture: texture assembled from generated tiles (fake texture)
+        :param real_texture: ground truth real texture from source
+        :return: None
+        """
+        optimizer_texture_discr = self.optimizers()[2]
+        self.toggle_optimizer(optimizer_texture_discr)
+
+        # assess ability to correctly identify real textures
+        discr_output_real = self.tile_discriminator(real_texture)  # ideally outputs 1
+        discr_loss_real = self.texture_loss(Tensor([discr_output_real]), Tensor([1]))
+
+        # assess ability to correctly identify fake images
+        discr_output_fake = self.tile_discriminator(generated_texture)  # ideally outputs 0
+        discr_loss_fake = self.texture_loss(Tensor([discr_output_fake]), Tensor([0]))
+
+        total_discr_loss = (discr_loss_real + discr_loss_fake) / 2.0  # average loss
+
+        optimizer_texture_discr.zero_grad()
+        self.manual_backward(total_discr_loss)
+        optimizer_texture_discr.step()
+        # lr_sch_texture_discr = self.lr_schedulers()[2]
+        # lr_sch_texture_discr.step(total_discr_loss)
+        self.untoggle_optimizer(optimizer_texture_discr)
+
+        self.log('texture_d_loss', total_discr_loss, prog_bar=True, logger=True, on_step=True)
+        self.log('texture_d_loss_real', discr_loss_real, prog_bar=False, logger=True, on_step=True)
+        self.log('texture_d_loss_fake', discr_loss_fake, prog_bar=False, logger=True, on_step=True)
+        # self.log('texture_d_lr', lr_sch_texture_discr._last_lr[0], prog_bar=False, logger=True, on_step=True)
+
+    def training_step(self, batch: Tensor, batch_idx: int) -> None:
         """
         Runs a single training iteration with a single batch of data.
 
