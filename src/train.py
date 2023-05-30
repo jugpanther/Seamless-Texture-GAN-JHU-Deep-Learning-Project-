@@ -150,8 +150,8 @@ class InPaintingGAN(L.LightningModule):
         # --> a "real" image will be fully real (value of 1 everywhere)
         # --> a "fake" image will have a variety of 0s and 1s depending on each mask in the batch
 
-        ideal_d_output_real = torch.ones(batch_size, 1, self.img_size, self.img_size).requires_grad_(False)
-        ideal_d_output_fake = masks[:, :1].clone().detach().requires_grad_(False)  # take first channel of mask only because this tensor needs to be 1D
+        ideal_discr_output_real = torch.ones(batch_size, 1, self.img_size, self.img_size)
+        ideal_discr_output_fake = masks[:, 0].clone()  # take first channel of mask only because this tensor needs to be single-channel
 
         # move tensors to same devices as other batch data
         ideal_discr_output_real = ideal_discr_output_real.type_as(original_imgs)
