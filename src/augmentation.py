@@ -43,35 +43,37 @@ class AugTypes:
 
 def get_transform(profile: str, aug_type: int, final_img_size: int) -> Tuple[T.Compose, T.Compose]:
     """
-    Builds a transform for augmentation of the desired type to produce
-    the correct output image size.
+    Builds transforms for augmentation of the desired type to produce the correct output image size.
+    The "base transform" is applied to each image upon reading from disk.
+    The "aug transform" is applied to modify the image or extract some sub-image to produce an augmentation.
+    The "texture transform" is used to extract a large texture patch from a source image.
 
     :param profile: current run profile
     :param aug_type: aug type
     :param final_img_size: final image size, e.g. 64 (assumes square images)
-    :return: transform.Compose object
+    :return: transform.Compose objects as tuple: (base transform, aug transform, texture transform)
     """
     base_transform = _get_base_transform(profile, final_img_size)
 
     if aug_type == AugTypes.FULL:
-        transform = _get_full_transform(final_img_size)
+        transforms = _get_full_transform(final_img_size), RandomSeamlessCrop(final_img_size, horiz_flip=True, vert_flip=True, rotate=True)
 
     elif aug_type == AugTypes.NO_ROT:
-        transform = _get_no_rot_transform(base_transform)
+        transforms = _get_no_rot_transform(base_transform), RandomSeamlessCrop(final_img_size, horiz_flip=True, vert_flip=True, rotate=False)
 
     elif aug_type == AugTypes.VERT_FLIP_ONLY:
-        transform = _get_vert_flip_transform(base_transform)
+        transforms = _get_vert_flip_transform(base_transform), RandomSeamlessCrop(final_img_size, horiz_flip=False, vert_flip=True, rotate=False)
 
     elif aug_type == AugTypes.HORIZ_FLIP_ONLY:
-        transform = _get_horiz_flip_transform(base_transform)
+        transforms = _get_horiz_flip_transform(base_transform), RandomSeamlessCrop(final_img_size, horiz_flip=True, vert_flip=False, rotate=False)
 
     elif aug_type == AugTypes.NONE:
-        transform = _get_empty_transform()
+        transforms = _get_empty_transform(), _get_empty_transform()
 
     else:
         raise ValueError(f'Unknown augmentation type: {aug_type}')
 
-    return base_transform, transform
+    return base_transform, *transforms
 
 
 def _get_base_transform(profile: str, final_img_size: int) -> T.Compose:
