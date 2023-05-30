@@ -6,9 +6,11 @@ import sys
 from typing import Tuple
 
 import numpy as np
+import requests
 import torch
 import torch.nn as nn
 import torchvision
+from PIL import Image
 
 
 def is_power_of_2(value: int) -> bool:
@@ -98,7 +100,7 @@ def tensor01_to_RGB01(t: torch.Tensor) -> np.ndarray:
     transpose_shape = (0, 2, 3, 1) if t.ndim == 4 else (1, 2, 0)
     t = np.transpose(t, transpose_shape)
     t = t.astype(np.float32)
-    return t
+    return t if t.ndim == 3 else t[0]
 
 
 def get_cuda_device() -> any:
@@ -129,3 +131,45 @@ def print_torch_version_info() -> None:
         print(f'CUDA device is {device}, which refers to "{torch.cuda.get_device_name()}"')
     else:
         print(f'CUDA is unavailable. Device is "{device}".')
+
+
+def download_image_as_tensor(img_url: str, raise_on_failure: bool = True) -> torch.Tensor | None:
+    """
+    Downloads an image from a URL and converts it into a tensor.
+
+    :param img_url: URL to an image file
+    :param raise_on_failure: if True, raises an exception upon encountering any error during download or conversion
+    :return: image as tensor in format (B,C,H,W) or None if an issue was encountered
+    """
+    # send a GET request to the specified URL
+    response = requests.get(img_url, stream=True)
+
+    # check if the request was successful
+    if response.status_code == 200:
+        try:
+            # open the image using PIL
+            img = Image.open(response.raw)
+
+            # convert the image to a tensor
+            img = np.array(img)
+            img = img / 255.0
+            img = torch.Tensor(img).unsqueeze(0)
+            img = torch.permute(img, (0, 3, 1, 2))
+            assert img.shape[0] == 1
+            assert img.shape[1] == 3
+
+            return img
+
+        except Exception as e:
+            if raise_on_failure:
+                raise e
+            else:
+                pass
+    else:
+        msg = f"Error downloading image from {img_url}. Status code: {response.status_code}."
+        if raise_on_failure:
+            raise ValueError(msg)
+        else:
+            print(msg)
+
+    return None
