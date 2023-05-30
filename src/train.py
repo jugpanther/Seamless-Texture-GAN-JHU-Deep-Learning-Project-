@@ -53,6 +53,8 @@ class InPaintingGAN(L.LightningModule):
         self.verify_models()
         self.automatic_optimization = False  # because we have multiple optimizers
 
+        self.epoch_tqdm = None
+
     def verify_models(self) -> None:
         """
         Validates the output sizes of each model. Raises an exception upon failure.
@@ -274,82 +276,40 @@ class InPaintingGAN(L.LightningModule):
         :param batch_idx: batch index
         :return: None
         """
-        # inspired from from https://lightning.ai/docs/pytorch/stable/notebooks/lightning_examples/basic-gan.html
         imgs_orig, masks, masked_imgs = batch  # type: Tensor, Tensor, Tensor
 
-        # # pre-train generator on pure noise to have a better chance at understanding noise in the masked images
-        # if self.current_epoch < 10:
-        #     mixer = torch.round(torch.rand_like(masked_imgs))
-        #     masked_imgs = imgs_orig * mixer + torch.rand_like(masked_imgs) * (1 - mixer)
-        #     masks = mixer
+        # =========================================================================================
+        # TRAIN GENERATOR
 
-        self.generator.train()  # possibly not needed, but explicit
+        self.generator.train()
+        self.tile_discriminator.eval()
+        self.texture_discriminator.eval()
+
+        ideal_D_output_real, ideal_D_output_fake = self.build_tile_discriminator_ground_truths(imgs_orig, masks)
+        real_texture = self.dataset.generate_texture_sample()
+        fake_texture = self.generate_texture_sample()  # TODO: implement
+
+        G_output = self.train_generator(imgs_orig=imgs_orig.detach().clone().requires_grad_(True),
+                                        masked_imgs=masked_imgs,
+                                        ideal_discr_output_real=ideal_D_output_real.detach().clone().requires_grad_(True),
+                                        generated_texture=fake_texture.detach())
+        self.generator.eval()
+
+        # =========================================================================================
+        # TRAIN TILE DISCRIMINATOR
+
         self.tile_discriminator.train()
+        G_output = G_output.detach().clone().requires_grad_(True)
+        self.train_tile_discriminator(imgs_orig=imgs_orig, ideal_tile_discr_output_real=ideal_D_output_real, ideal_tile_discr_output_fake=ideal_D_output_fake, gen_output=G_output)
+        self.tile_discriminator.eval()
 
-        optimizer_G, optimizer_D = self.optimizers()  # type: torch.optim.Optimizer
-        lr_sch_G, lr_sch_D = self.lr_schedulers()  # type: torch.optim.lr_scheduler.ReduceLROnPlateau
+        # =========================================================================================
+        # TRAIN TEXTURE DISCRIMINATOR
 
-        # get ground truths
-        ideal_D_output_real, ideal_D_output_fake = self.build_discriminator_ground_truths(imgs_orig, masks)
+        self.texture_discriminator.train()
+        self.train_texture_discriminator(fake_texture, real_texture)
 
-        # ===================================================================================================================
-        # train the generator
-        self.toggle_optimizer(optimizer_G)
-        G_output = self.generator(masked_imgs)
-
-        # painted_imgs.requires_grad_(False)
-        G_output_for_D = torch.zeros_like(G_output)
-        G_output_for_D.copy_(G_output)
-        G_output_for_D.requires_grad_(True)
-
-        D_output = self.tile_discriminator(G_output)  # see what D thinks of G's attempt
-        G_adv_loss = self.adversarial_loss(D_output, ideal_D_output_real.detach().requires_grad_(True))  # ideally zero; trying to make D guess all images are real
-        G_pixel_loss = self.pixelwise_loss(G_output, imgs_orig.detach().requires_grad_(True))  # ideally zero; trying to make G produce exact, real patches
-
-        # adv_loss_weight = (0.2 - 0.01) * np.exp(-3 * self.fraction_complete) + 0.01  # https://www.desmos.com/calculator/elzcvwukqw
-        adv_loss_weight = 0.1
-        # pixel_loss_weight = 0.8 + self.fraction_complete * (0.99 - 0.8)
-        pixel_loss_weight = 0.9
-        # total_G_loss = (0.001 * G_adv_loss) + (0.999 * G_pixel_loss)  # ideally zero
-        total_G_loss = (adv_loss_weight * G_adv_loss) + (pixel_loss_weight * G_pixel_loss)  # ideally zero
-        # total_G_loss = (0.1 * G_adv_loss) + (0.9 * G_pixel_loss)  # ideally zero
-        # total_G_loss = (0.5 * G_adv_loss) + (0.5 * G_pixel_loss)  # ideally zero
-
-        # following this for order of operations: https://lightning.ai/docs/pytorch/stable/model/manual_optimization.html#use-multiple-optimizers-like-gans
-        optimizer_G.zero_grad()
-        self.manual_backward(total_G_loss, retain_graph=True)
-        optimizer_G.step()
-        # lr_sch_G.step(total_G_loss)
-        self.untoggle_optimizer(optimizer_G)
-
-        # ===================================================================================================================
-        # train discriminator
-        self.toggle_optimizer(optimizer_D)
-
-        # assess ability to correctly identify real images
-        D_output_real = self.tile_discriminator(imgs_orig.requires_grad_(True))
-        D_loss_real = self.adversarial_loss(D_output_real, ideal_D_output_real.requires_grad_(True))
-
-        # assess ability to correctly identify fake images
-        D_output_fake = self.tile_discriminator(G_output_for_D)  # modified masked images from generator
-        D_loss_fake = self.adversarial_loss(D_output_fake, ideal_D_output_fake.requires_grad_(True))
-        total_D_loss = (D_loss_real + D_loss_fake) / 2.0  # average loss
-
-        optimizer_D.zero_grad()
-        self.manual_backward(total_D_loss)
-        optimizer_D.step()
-        # lr_sch_D.step(total_D_loss)
-        self.untoggle_optimizer(optimizer_D)
-
-        # ===================================================================================================================
-        self.log('g_loss', total_G_loss, prog_bar=True, logger=True, on_step=True)
-        self.log('d_loss', total_D_loss, prog_bar=True, logger=True, on_step=True)
-        self.log('G_adv_loss', G_adv_loss, prog_bar=False, logger=True, on_step=True)
-        self.log('G_pixel_loss', G_pixel_loss, prog_bar=False, logger=True, on_step=True)
-        self.log('D_loss_real', D_loss_real, prog_bar=False, logger=True, on_step=True)
-        self.log('D_loss_fake', D_loss_fake, prog_bar=False, logger=True, on_step=True)
-        # self.log('g_lr', lr_sch_G._last_lr[0], prog_bar=False, logger=True, on_step=True)
-        # self.log('d_lr', lr_sch_D._last_lr[0], prog_bar=False, logger=True, on_step=True)
+        # =========================================================================================
 
         # log extra data a few times per epoch
         if batch_idx % (self.trainer.num_training_batches // 5) == 0:
