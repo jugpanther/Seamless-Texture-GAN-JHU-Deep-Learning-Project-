@@ -64,30 +64,71 @@ class InPaintingGAN(L.LightningModule):
         model_sanity_check(self.texture_discriminator, (3, self.texture_builder.texture_size, self.texture_builder.texture_size), (1,), 'Texture Discriminator')
         print('Models passed data size checks')
 
-    def forward(self, x):
+    def forward(self, x) -> Tensor:
+        """
+        Evaluates the generator using the given input.
+
+        :param x: tensor input including batch dimension
+        :return: tensor output
+        """
         return self.generator(x)
 
     def on_train_start(self) -> None:
+        """
+        Built-in override. Configures a progress bar to track overall training progress.
+
+        :return: None
+        """
         self.epoch_tqdm = tqdm(total=self.trainer.max_epochs - 1, leave=True)
 
-    def update_epoch_tqdm(self):
+    def update_epoch_tqdm(self) -> None:
+        """
+        Increments the overall training progress bar.
+
+        :return: None
+        """
         if self.epoch_tqdm is not None:
             self.epoch_tqdm.desc = f'Epoch {self.current_epoch}/{self.trainer.max_epochs - 1}'
             if self.current_epoch > 0:
                 self.epoch_tqdm.update(1)
 
     def on_train_epoch_start(self) -> None:
+        """
+        Built-in override. Called at the start of every training epoch.
+
+        :return:
+        """
         self.update_epoch_tqdm()
 
-    def adversarial_loss(self, y_pred, y_true):
+    @staticmethod
+    def adversarial_loss(y_pred: Tensor, y_true: Tensor) -> Tensor:
+        """
+        Computes the adversarial loss between a prediction and ground truth.
+
+        :param y_pred: predicted tensor
+        :param y_true: ground truth tensor
+        :return: adversarial loss tensor
+        """
         return F.mse_loss(y_pred, y_true)
 
-    def pixelwise_loss(self, y_pred, y_true):
+    @staticmethod
+    def pixelwise_loss(y_pred, y_true) -> Tensor:
+        """
+        Computes the pixel-wise loss (pixel-wise similarity) between a prediction and ground truth.
+
+        :param y_pred: predicted tensor
+        :param y_true: ground truth tensor
+        :return: pixel-wise loss tensor
+        """
         return F.l1_loss(y_pred, y_true)
 
     def build_discriminator_ground_truths(self, original_imgs: Tensor, masks: Tensor) -> Tuple[Tensor, Tensor]:
         """
-        Constructs the ground truth for the discriminator for a specific batch.
+        return F.binary_cross_entropy(y_pred, y_true).item()
+
+    def build_tile_discriminator_ground_truths(self, original_imgs: Tensor, masks: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        Constructs the ground truth for the tile discriminator for a specific batch.
         The ground truth consists of two single-channel 2D images:
             • a "fully true" tensor to be used with original images
             • a "partially true" (fake) tensor to be used with generator outputs
