@@ -12,7 +12,7 @@ from src.train import InPaintingGAN
 from src.util import *
 
 
-class SupportedProfiles:
+class ImageSamplingProfiles:
     SUBSAMPLING = 'subsampling'
     SINGLE_SAMPLE = 'single_sample'
 

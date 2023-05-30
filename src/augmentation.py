@@ -3,7 +3,8 @@ from typing import Tuple
 import numpy as np
 import torchvision.transforms as T
 
-from src.runner import SupportedProfiles
+from src.runner import ImageSamplingProfiles
+from src.seamless_crop_transform import RandomSeamlessCrop
 
 
 class AugTypes:
@@ -74,10 +75,10 @@ def get_transform(profile: str, aug_type: int, final_img_size: int) -> Tuple[T.C
 
 
 def _get_base_transform(profile: str, final_img_size: int) -> T.Compose:
-    if profile == SupportedProfiles.SUBSAMPLING:
+    if profile == ImageSamplingProfiles.SUBSAMPLING:
         return T.Compose([T.RandomCrop(final_img_size)])
-    elif profile == SupportedProfiles.SINGLE_SAMPLE:
-        return T.Compose([])
+    elif profile == ImageSamplingProfiles.SINGLE_SAMPLE:
+        return T.Compose([T.Resize(final_img_size, T.InterpolationMode.BILINEAR)])
 
 
 def _get_full_transform(final_img_size: int) -> T.Compose:

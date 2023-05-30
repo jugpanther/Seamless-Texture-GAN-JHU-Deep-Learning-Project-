@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 
 from src.params import Params
-from src.runner import run, SupportedProfiles
+from src.runner import run, ImageSamplingProfiles
 from src.augmentation import AugTypes, get_transform
 
 arg_parser = argparse.ArgumentParser(prog='src')
@@ -48,7 +48,7 @@ arg_parser.add_argument('--exp_name',
 
 arg_parser.add_argument('--profile',
                         type=str,
-                        choices=SupportedProfiles.values,  # noqa
+                        choices=ImageSamplingProfiles.values,  # noqa
                         help='Run profile')
 
 arg_parser.add_argument('--samples_per_img',
@@ -57,7 +57,7 @@ arg_parser.add_argument('--samples_per_img',
 
 arg_parser.add_argument('--test_texture_size',
                         type=int,
-                        help='Side length, in tiles, of test texture, e.g. \'4\' for 4x4')
+                        help='Side length, in tiles, of test texture, e.g. 4 for 4x4')
 
 arg_parser.add_argument('--augs_per_sample',
                         type=int,
