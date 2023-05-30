@@ -2,24 +2,24 @@
 Model training code.
 """
 
-from typing import List, Tuple
+from typing import Tuple
+
 import cv2
 import lightning as L
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import Tensor
 from lightning.pytorch.loggers import TensorBoardLogger
-from tqdm import tqdm
 from skimage.metrics import structural_similarity
+from torch import Tensor
+from tqdm import tqdm
 
-from src.tile_discriminator import TileDiscriminator
-from src.generator import Generator
 from src.masked_img_dataset import MaskedImageDataset
 from src.multi_res_generator import MultiResGenerator
 from src.results_grid import ResultsGrid
 from src.texture_discriminator import TextureDiscriminator
 from src.texturing import TextureBuilder
+from src.tile_discriminator import TileDiscriminator
 from src.util import model_sanity_check, tensor01_to_RGB01
 
 
