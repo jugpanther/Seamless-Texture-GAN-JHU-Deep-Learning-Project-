@@ -122,7 +122,14 @@ class InPaintingGAN(L.LightningModule):
         """
         return F.l1_loss(y_pred, y_true)
 
-    def build_discriminator_ground_truths(self, original_imgs: Tensor, masks: Tensor) -> Tuple[Tensor, Tensor]:
+    @staticmethod
+    def texture_loss(y_pred, y_true) -> Tensor:
+        """
+        Computes the loss of the predicted "real-ness" of a texture given the ground truth.
+
+        :param y_pred: predicted value
+        :param y_true: ground truth value
+        :return: loss value
         """
         return F.binary_cross_entropy(y_pred, y_true).item()
 
