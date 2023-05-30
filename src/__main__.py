@@ -119,7 +119,8 @@ elif args.horiz_flip:
 elif args.no_aug:
     params.aug_type = AugTypes.NONE
 
-params.base_transform, params.aug_transform = get_transform(params.run_profile, params.aug_type, params.img_size)
+transforms = get_transform(params.run_profile, params.aug_type, params.img_size)
+params.base_transform, params.aug_transform, params.texture_transform = transforms
 params.train_worker_count = args.workers
 
 run(params)

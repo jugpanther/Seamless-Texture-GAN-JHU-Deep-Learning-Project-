@@ -26,8 +26,10 @@ class MaskedImageDataset(Dataset):
                  img_size: int,
                  mask_size: int,
                  wandering_mask_prob: float = 0,
+                 *,
+                 texture_transform: T.Compose,
                  base_transform: T.Compose | None = None,
-                 transform: T.Compose | None = None):
+                 tile_transform: T.Compose | None = None):
         """
         :param img_dir_path: path to directory containing all images
         :param samples_per_img: number of samples taken per image; must be 1 or more
@@ -35,8 +37,9 @@ class MaskedImageDataset(Dataset):
         :param img_size: image size, e.g. 64 for 64x64
         :param mask_size: border size (thickness) of mask edges in pixels, e.g. 8
         :param wandering_mask_prob: probability of applying the wandering mask patch to a given sample
+        :param texture_transform: the transform that extracts a large texture sample for a source image
         :param base_transform: optional; the fundamental transform without augmentation, such as a crop or resize
-        :param transform: optional; random augmentation transform
+        :param tile_transform: optional; random augmentation transform
         """
         super().__init__()
         self.data_path = img_dir_path
@@ -60,7 +63,8 @@ class MaskedImageDataset(Dataset):
         self.wandering_mask_prob = wandering_mask_prob
 
         self.base_transform = base_transform if base_transform is not None else T.Compose([])
-        self.transform = transform if transform is not None else T.Compose([])
+        self.tile_transform = tile_transform if tile_transform is not None else T.Compose([])
+        self.texture_transform = texture_transform
 
     def _load_filenames(self) -> None:
         """
@@ -163,13 +167,13 @@ class MaskedImageDataset(Dataset):
         if aug_idx != 0:
             sample = self.base_transform(source_img)
         else:
-            sample = self.transform(source_img)
+            sample = self.tile_transform(source_img)
 
         sample = self.pil_to_tensor(sample)
 
         sample = sample / 255.0
         assert sample.dtype.is_floating_point, f'Initial image value scaling failed to produce floats in range [0,1]; tensor dtype is {sample.dtype}'
-        sample = self.transform(sample)
+        sample = self.tile_transform(sample)
         logical_mask, noise_mask = self.create_mask()
 
         # create masked image

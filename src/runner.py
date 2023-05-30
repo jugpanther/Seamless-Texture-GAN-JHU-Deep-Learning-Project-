@@ -47,8 +47,9 @@ def run(params: Params) -> None:
                                  params.img_size,
                                  params.mask_size,
                                  params.wandering_mask_prob,
-                                 params.base_transform,
-                                 params.aug_transform)
+                                 texture_transform=params.texture_transform,
+                                 base_transform=params.base_transform,
+                                 tile_transform=params.aug_transform)
 
     train_dataloader = DataLoader(dataset,
                                   batch_size=params.batch_size,

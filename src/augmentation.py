@@ -41,7 +41,7 @@ class AugTypes:
             raise ValueError(f'Unknown augmentation type: {aug_type}')
 
 
-def get_transform(profile: str, aug_type: int, final_img_size: int) -> Tuple[T.Compose, T.Compose]:
+def get_transform(profile: str, aug_type: int, final_img_size: int) -> Tuple[T.Compose, T.Compose, T.Compose]:
     """
     Builds transforms for augmentation of the desired type to produce the correct output image size.
     The "base transform" is applied to each image upon reading from disk.
@@ -73,7 +73,7 @@ def get_transform(profile: str, aug_type: int, final_img_size: int) -> Tuple[T.C
     else:
         raise ValueError(f'Unknown augmentation type: {aug_type}')
 
-    return base_transform, *transforms
+    return base_transform, *transforms  # noqa
 
 
 def _get_base_transform(profile: str, final_img_size: int) -> T.Compose:

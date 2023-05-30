@@ -37,6 +37,7 @@ class Params:
     augs_per_sample = -1
     aug_transform: T.Compose = None
     base_transform: T.Compose = None
+    texture_transform: T.Compose = None
 
     @property
     def true_tile_size(self) -> int:
